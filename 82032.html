@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>經典貪食蛇 - 隨機敵對蛇挑戰版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            touch-action: none;
+            overflow: hidden;
+            background-color: #1a202c;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #game-canvas {
+            border: 4px solid #4a5568;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            background-color: #2d3748;
+            max-width: 100%;
+            height: auto;
+            transition: border-color 0.3s;
+        }
+        .control-btn {
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .boost-active {
+            box-shadow: 0 0 15px #60a5fa;
+            border-color: #60a5fa !important;
+        }
+        .level-up-flash {
+            animation: flash 0.5s ease-out;
+        }
+        @keyframes flash {
+            0% { background-color: #2d3748; }
+            50% { background-color: #4ade80; }
+            100% { background-color: #2d3748; }
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen p-4 text-white">
+
+    <div class="text-center mb-4">
+        <h1 class="text-4xl font-bold mb-2 text-green-400">貪食蛇 Snake</h1>
+        <div class="flex justify-center gap-6 text-lg font-semibold">
+            <p class="text-yellow-400">第 <span id="level-display">1</span> 關</p>
+            <p>分數: <span id="score">0</span></p>
+            <p>最高紀錄: <span id="high-score">0</span></p>
+        </div>
+        <div id="status-container" class="h-8 mt-2">
+            <div id="boost-status" class="text-blue-400 font-bold opacity-0 transition-opacity duration-300">
+                ⚡ 玩家加速中！剩餘 <span id="boost-timer">10</span>s
+            </div>
+            <div id="enemy-boost-status" class="text-red-400 font-bold hidden">⚠️ 警報：敵對蛇亂竄加速中！</div>
+            <div id="level-msg" class="text-green-400 font-bold hidden">恭喜升級！</div>
+            <div id="apple-msg" class="font-bold transition-all duration-500 opacity-0"></div>
+        </div>
+    </div>
+
+    <canvas id="game-canvas" width="400" height="400" class="rounded-lg"></canvas>
+
+    <div id="overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden z-10">
+        <div class="bg-gray-800 p-8 rounded-xl text-center border-2 border-green-500">
+            <h2 id="overlay-title" class="text-3xl font-bold mb-4 text-white">準備好了嗎？</h2>
+            <p id="final-score" class="text-xl mb-6 text-gray-300"></p>
+            <button id="start-btn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full transition-transform transform hover:scale-105">
+                開始遊戲
+            </button>
+        </div>
+    </div>
+
+    <!-- 手機控制按鈕 -->
+    <div class="mt-8 grid grid-cols-3 gap-2 md:hidden">
+        <div></div>
+        <button id="btn-up" class="control-btn bg-gray-700 p-4 rounded-lg active:bg-green-500 flex justify-center">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="5 15l7-7 7 7"></path></svg>
+        </button>
+        <div></div>
+        <button id="btn-left" class="control-btn bg-gray-700 p-4 rounded-lg active:bg-green-500 flex justify-center">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="15 19l-7-7 7-7"></path></svg>
+        </button>
+        <button id="btn-down" class="control-btn bg-gray-700 p-4 rounded-lg active:bg-green-500 flex justify-center">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="19 9l-7 7-7-7"></path></svg>
+        </button>
+        <button id="btn-right" class="control-btn bg-gray-700 p-4 rounded-lg active:bg-green-500 flex justify-center">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="9 5l7 7-7 7"></path></svg>
+        </button>
+    </div>
+
+    <p class="mt-6 text-gray-400 hidden md:block text-sm">LV3 挑戰：紅色的敵對蛇現在會在地圖上隨機移動！</p>
+
+    <script>
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const highScoreEl = document.getElementById('high-score');
+        const levelEl = document.getElementById('level-display');
+        const overlay = document.getElementById('overlay');
+        const startBtn = document.getElementById('start-btn');
+        const overlayTitle = document.getElementById('overlay-title');
+        const finalScoreEl = document.getElementById('final-score');
+        const boostStatus = document.getElementById('boost-status');
+        const enemyBoostStatus = document.getElementById('enemy-boost-status');
+        const boostTimerEl = document.getElementById('boost-timer');
+        const levelMsg = document.getElementById('level-msg');
+        const appleMsg = document.getElementById('apple-msg');
+
+        const gridSize = 20;
+        const tileCount = canvas.width / gridSize;
+        const BASE_SPEED = 150;
+        
+        let snake = [{x: 10, y: 10}];
+        let enemySnake = [];
+        let enemyDx = 0;
+        let enemyDy = 1;
+        let enemyIsBoosting = false;
+        let enemyBoostTimeLeft = 0;
+        let enemyTickCounter = 0;
+
+        let food = {x: 5, y: 5};
+        let blueFood = {x: -1, y: -1};
+        let apple = {x: -1, y: -1}; 
+        let dx = 1;
+        let dy = 0;
+        let score = 0;
+        let currentLevel = 1;
+        let highScore = localStorage.getItem('snakeHighScore') || 0;
+        let gameLoop;
+        let isPaused = true;
+        let speed = BASE_SPEED; 
+
+        let isBoosting = false;
+        let boostTimeLeft = 0;
+        let boostInterval;
+        let appleTimer; 
+        let normalLength = 1;
+        let gameOverReason = "";
+
+        highScoreEl.innerText = highScore;
+
+        function initGame() {
+            snake = [{x: 10, y: 10}];
+            enemySnake = [];
+            enemyIsBoosting = false;
+            score = 0;
+            currentLevel = 1;
+            speed = BASE_SPEED;
+            isBoosting = false;
+            boostTimeLeft = 0;
+            normalLength = 1;
+            blueFood = {x: -1, y: -1};
+            apple = {x: -1, y: -1};
+            
+            boostStatus.style.opacity = "0";
+            enemyBoostStatus.classList.add('hidden');
+            levelMsg.classList.add('hidden');
+            canvas.classList.remove('boost-active');
+            
+            generateFood();
+            dx = 1; dy = 0;
+            scoreEl.innerText = score;
+            levelEl.innerText = currentLevel;
+            isPaused = false;
+            overlay.classList.add('hidden');
+            
+            if (gameLoop) clearInterval(gameLoop);
+            if (boostInterval) clearInterval(boostInterval);
+            if (appleTimer) clearInterval(appleTimer);
+            
+            gameLoop = setInterval(draw, 16); 
+            
+            appleTimer = setInterval(() => {
+                if (!isPaused && currentLevel >= 3) generateApple();
+            }, 10000);
+
+            boostInterval = setInterval(() => {
+                if (isPaused) return;
+                if (boostTimeLeft > 0) {
+                    boostTimeLeft--;
+                    boostTimerEl.innerText = boostTimeLeft;
+                    if (boostTimeLeft <= 0) stopBoost();
+                }
+                if (enemyBoostTimeLeft > 0) {
+                    enemyBoostTimeLeft--;
+                    if (enemyBoostTimeLeft <= 0) stopEnemyBoost();
+                }
+            }, 1000);
+        }
+
+        function initEnemy() {
+            enemySnake = [{x: 0, y: 0}, {x: 0, y: 1}, {x: 0, y: 2}, {x: 0, y: 3}];
+            enemyDx = 0; enemyDy = 1;
+        }
+
+        function generateFood() {
+            food = { x: Math.floor(Math.random() * tileCount), y: Math.floor(Math.random() * tileCount) };
+            if (isAtSnake(food) || isAtBlueFood(food) || isAtApple(food) || isAtEnemySnake(food)) generateFood();
+        }
+
+        function generateBlueFood() {
+            if (currentLevel < 2) return;
+            blueFood = { x: Math.floor(Math.random() * tileCount), y: Math.floor(Math.random() * tileCount) };
+            if (isAtSnake(blueFood) || isAtFood(blueFood) || isAtApple(blueFood) || isAtEnemySnake(blueFood)) generateBlueFood();
+        }
+
+        function generateApple() {
+            apple = { x: Math.floor(Math.random() * tileCount), y: Math.floor(Math.random() * tileCount) };
+            if (isAtSnake(apple) || isAtFood(apple) || isAtBlueFood(apple) || isAtEnemySnake(apple)) generateApple();
+            setTimeout(() => { apple = {x: -1, y: -1}; }, 10000);
+        }
+
+        function isAtSnake(pos) { return snake.some(part => part.x === pos.x && part.y === pos.y); }
+        function isAtEnemySnake(pos) { return enemySnake.some(part => part.x === pos.x && part.y === pos.y); }
+        function isAtFood(pos) { return food.x === pos.x && food.y === pos.y; }
+        function isAtBlueFood(pos) { return blueFood.x === pos.x && blueFood.y === pos.y; }
+        function isAtApple(pos) { return apple.x === pos.x && apple.y === pos.y; }
+
+        let lastUpdateTime = 0;
+        function draw(timestamp) {
+            if (isPaused) return;
+            
+            const effectiveSpeed = isBoosting ? speed / 2 : speed;
+            if (timestamp - lastUpdateTime > effectiveSpeed) {
+                lastUpdateTime = timestamp;
+                
+                moveSnake();
+                
+                enemyTickCounter++;
+                if (currentLevel >= 3) {
+                    if (enemyIsBoosting || enemyTickCounter % 2 === 0) {
+                        moveEnemySnake();
+                    }
+                }
+                
+                if (checkGameOver()) { handleGameOver(); return; }
+                
+                clearCanvas();
+                drawFood();
+                if (currentLevel >= 2) drawBlueFood();
+                if (currentLevel >= 3) {
+                    drawApple();
+                    drawEnemySnake();
+                }
+                drawSnake();
+            }
+            requestAnimationFrame(draw);
+        }
+
+        function clearCanvas() {
+            ctx.fillStyle = "#2d3748";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+            for(let i=0; i<canvas.width; i+=gridSize) {
+                ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i, canvas.height); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(canvas.width, i); ctx.stroke();
+            }
+        }
+
+        function drawSnakeGeneric(nodes, isEnemy, boost, currentDx, currentDy) {
+            const totalParts = nodes.length;
+            nodes.forEach((part, index) => {
+                if (index === 0) {
+                    if (isEnemy) {
+                        ctx.fillStyle = (boost && Date.now() % 200 < 100) ? "#60a5fa" : "#ef4444";
+                    } else {
+                        ctx.fillStyle = boost ? "#60a5fa" : "#4ade80";
+                    }
+                } else {
+                    if (isEnemy) {
+                        ctx.fillStyle = (index % 2 === 0) ? "#dc2626" : "#991b1b";
+                    } else {
+                        ctx.fillStyle = (index % 2 === 0) ? (boost ? "#3b82f6" : "#22c55e") : (boost ? "#2563eb" : "#16a34a");
+                    }
+                }
+                
+                const x = part.x * gridSize;
+                const y = part.y * gridSize;
+                let sizeScale = 1 - (index / totalParts) * 0.7;
+                const s = (gridSize - 2) * sizeScale;
+                const offset = (gridSize - s) / 2;
+
+                ctx.beginPath();
+                ctx.roundRect(x + offset, y + offset, s, s, 4 * sizeScale);
+                ctx.fill();
+
+                if (index === 0) {
+                    ctx.fillStyle = "white";
+                    let eyeSize = 3 * (isEnemy ? 1.2 : 1);
+                    
+                    let e1x, e1y, e2x, e2y;
+                    if (currentDx === 1) { 
+                        e1x = x + 14; e1y = y + 4; e2x = x + 14; e2y = y + 12;
+                    } else if (currentDx === -1) { 
+                        e1x = x + 3; e1y = y + 4; e2x = x + 3; e2y = y + 12;
+                    } else if (currentDy === 1) { 
+                        e1x = x + 4; e1y = y + 14; e2x = x + 12; e2y = y + 14;
+                    } else { 
+                        e1x = x + 4; e1y = y + 3; e2x = x + 12; e2y = y + 3;
+                    }
+
+                    ctx.fillRect(e1x, e1y, eyeSize, eyeSize); 
+                    ctx.fillRect(e2x, e2y, eyeSize, eyeSize);
+                    
+                    if (isEnemy) {
+                        ctx.fillStyle = "black";
+                        ctx.fillRect(e1x + 1, e1y + 1, 1, 1);
+                        ctx.fillRect(e2x + 1, e2y + 1, 1, 1);
+                    }
+                }
+            });
+        }
+
+        function drawSnake() { drawSnakeGeneric(snake, false, isBoosting, dx, dy); }
+        function drawEnemySnake() { drawSnakeGeneric(enemySnake, true, enemyIsBoosting, enemyDx, enemyDy); }
+
+        function drawFood() {
+            ctx.fillStyle = "#f87171";
+            ctx.beginPath();
+            ctx.arc(food.x * gridSize + gridSize/2, food.y * gridSize + gridSize/2, gridSize/2 - 2, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+        function drawBlueFood() {
+            if (blueFood.x < 0) return;
+            ctx.fillStyle = "#60a5fa";
+            ctx.beginPath();
+            ctx.arc(blueFood.x * gridSize + gridSize/2, blueFood.y * gridSize + gridSize/2, gridSize/2 - 2, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+        function drawApple() {
+            if (apple.x < 0) return;
+            ctx.fillStyle = "#fbbf24"; 
+            ctx.beginPath();
+            ctx.arc(apple.x * gridSize + gridSize/2, apple.y * gridSize + gridSize/2 + 2, gridSize/2 - 3, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillStyle = "#92400e";
+            ctx.fillRect(apple.x * gridSize + gridSize/2 - 1, apple.y * gridSize + 2, 2, 4);
+        }
+
+        function moveSnake() {
+            const head = {x: snake[0].x + dx, y: snake[0].y + dy};
+            
+            if (currentLevel >= 3 && head.x === apple.x && head.y === apple.y) {
+                const isLucky = Math.random() >= 0.5;
+                score += isLucky ? 25 : -25;
+                appleMsg.innerText = isLucky ? "🍀 +25分！" : "🍎 -25分...";
+                appleMsg.className = isLucky ? "text-yellow-400 font-bold opacity-100" : "text-red-400 font-bold opacity-100";
+                setTimeout(() => appleMsg.className = "opacity-0", 2000);
+                apple = {x: -1, y: -1}; 
+                scoreEl.innerText = score;
+                checkLevelUp();
+            }
+
+            if (currentLevel >= 2 && head.x === blueFood.x && head.y === blueFood.y) {
+                if (isBoosting) { handleGameOver("加速期間禁止重複食用藍點！"); return; }
+                startBoost();
+                generateBlueFood();
+                score += 20;
+                scoreEl.innerText = score;
+                checkLevelUp();
+            }
+
+            snake.unshift(head);
+
+            if (head.x === food.x && head.y === food.y) {
+                score += 15; // 碰到紅點加 15 分
+                normalLength++;
+                scoreEl.innerText = score;
+                checkLevelUp();
+                generateFood();
+                if (speed > 60) speed -= 2;
+            } else {
+                const targetLength = isBoosting ? (normalLength * 3) : normalLength;
+                if (snake.length > targetLength) snake.pop();
+            }
+        }
+
+        function moveEnemySnake() {
+            if (enemySnake.length === 0) return;
+            
+            const head = enemySnake[0];
+
+            if (blueFood.x === head.x && blueFood.y === head.y) {
+                startEnemyBoost();
+                generateBlueFood();
+            }
+
+            let possibleMoves = [
+                {dx: 1, dy: 0}, {dx: -1, dy: 0}, {dx: 0, dy: 1}, {dx: 0, dy: -1}
+            ];
+
+            possibleMoves = possibleMoves.filter(m => !(m.dx === -enemyDx && m.dy === -enemyDy));
+
+            const randomChance = Math.random();
+            const shouldChangeDir = randomChance < 0.15; 
+
+            const distToBlue = Math.abs(head.x - blueFood.x) + Math.abs(head.y - blueFood.y);
+            if (blueFood.x !== -1 && distToBlue < 8) {
+                if (blueFood.x > head.x && enemyDx !== -1) { enemyDx = 1; enemyDy = 0; }
+                else if (blueFood.x < head.x && enemyDx !== 1) { enemyDx = -1; enemyDy = 0; }
+                else if (blueFood.y > head.y && enemyDy !== -1) { enemyDx = 0; enemyDy = 1; }
+                else if (blueFood.y < head.y && enemyDy !== 1) { enemyDx = 0; enemyDy = -1; }
+            } else if (shouldChangeDir) {
+                const move = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
+                enemyDx = move.dx;
+                enemyDy = move.dy;
+            }
+
+            const newHead = {
+                x: (head.x + enemyDx + tileCount) % tileCount,
+                y: (head.y + enemyDy + tileCount) % tileCount
+            };
+            
+            enemySnake.unshift(newHead);
+            const targetEnemyLen = enemyIsBoosting ? 8 : 4;
+            while (enemySnake.length > targetEnemyLen) enemySnake.pop();
+        }
+
+        function checkLevelUp() {
+            // 等級門檻恢復為原本的 50 分與 120 分
+            if (currentLevel === 1 && score >= 50) {
+                currentLevel = 2;
+                triggerLevelUp("進入 LV2：藍點加速！");
+                generateBlueFood();
+            } else if (currentLevel === 2 && score >= 120) {
+                currentLevel = 3;
+                triggerLevelUp("進入 LV3：敵對蛇隨機亂竄！");
+                initEnemy();
+                generateApple();
+            }
+            levelEl.innerText = currentLevel;
+        }
+
+        function triggerLevelUp(msg) {
+            canvas.classList.add('level-up-flash');
+            setTimeout(() => canvas.classList.remove('level-up-flash'), 500);
+            levelMsg.innerText = msg;
+            levelMsg.classList.remove('hidden');
+            setTimeout(() => levelMsg.classList.add('hidden'), 3000);
+        }
+
+        function startBoost() {
+            isBoosting = true;
+            boostTimeLeft = 10;
+            boostStatus.style.opacity = "1";
+            boostTimerEl.innerText = boostTimeLeft;
+            canvas.classList.add('boost-active');
+        }
+
+        function stopBoost() {
+            isBoosting = false;
+            boostStatus.style.opacity = "0";
+            canvas.classList.remove('boost-active');
+            while (snake.length > normalLength) snake.pop();
+        }
+
+        function startEnemyBoost() {
+            enemyIsBoosting = true;
+            enemyBoostTimeLeft = 5;
+            enemyBoostStatus.classList.remove('hidden');
+        }
+
+        function stopEnemyBoost() {
+            enemyIsBoosting = false;
+            enemyBoostStatus.classList.add('hidden');
+        }
+
+        function checkGameOver() {
+            const head = snake[0];
+            if (head.x < 0 || head.x >= tileCount || head.y < 0 || head.y >= tileCount) { 
+                gameOverReason = "撞到牆壁了！"; return true; 
+            }
+            for (let i = 1; i < snake.length; i++) {
+                if (head.x === snake[i].x && head.y === snake[i].y) { 
+                    gameOverReason = "咬到自己了！"; return true; 
+                }
+            }
+            if (currentLevel >= 3) {
+                for (let part of enemySnake) {
+                    if (head.x === part.x && head.y === part.y) {
+                        gameOverReason = "被敵對蛇消滅了！"; return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function handleGameOver(reason) {
+            isPaused = true;
+            gameOverReason = reason || gameOverReason;
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('snakeHighScore', highScore);
+                highScoreEl.innerText = highScore;
+                overlayTitle.innerText = "新紀錄！";
+            } else { overlayTitle.innerText = "遊戲結束"; }
+            finalScoreEl.innerHTML = `${gameOverReason}<br>最終得分: ${score}`;
+            overlay.classList.remove('hidden');
+        }
+
+        function changeDirection(newDx, newDy) {
+            if (isPaused) return;
+            if (newDx === -dx && newDx !== 0) return;
+            if (newDy === -dy && newDy !== 0) return;
+            dx = newDx; dy = newDy;
+        }
+
+        window.addEventListener('keydown', e => {
+            switch(e.key) {
+                case 'ArrowUp': case 'w': case 'W': changeDirection(0, -1); break;
+                case 'ArrowDown': case 's': case 'S': changeDirection(0, 1); break;
+                case 'ArrowLeft': case 'a': case 'A': changeDirection(-1, 0); break;
+                case 'ArrowRight': case 'd': case 'D': changeDirection(1, 0); break;
+            }
+        });
+
+        document.getElementById('btn-up').onclick = () => changeDirection(0, -1);
+        document.getElementById('btn-down').onclick = () => changeDirection(0, 1);
+        document.getElementById('btn-left').onclick = () => changeDirection(-1, 0);
+        document.getElementById('btn-right').onclick = () => changeDirection(1, 0);
+        startBtn.onclick = () => { initGame(); requestAnimationFrame(draw); };
+        window.onload = () => { overlay.classList.remove('hidden'); clearCanvas(); };
+    </script>
+</body>
+</html>
